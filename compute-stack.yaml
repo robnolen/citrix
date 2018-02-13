@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC with public subnet, IGW and private subnet, plus routing tables
+Parameters:
+    BaseStackName:
+        Description: Name of Stack for Network
+        Type: String
+        Default: Network
+    domainName:
+        Description: Domain name (foo.bar)
+        Type: String
+        Default: contoso.com
+    domainUser:
+        Description: Domain admin user to join
+        Type: String
+        Default: citrixlab\administrator
+    password:
+        Description: Admin user password - sent to cfn-init!
+        Type: String
+        NoEcho: True
+
+Mappings:
+    WindowsRegionToAmiMap:
+        us-gov-west-1: 
+            "W2012AMI": "ami-bc8702dd"
+    LinuxRegionToAmiMap:
+        us-gov-west-1:
+            "LinuxAMI": "ami-700a8f11"
+
+Resources:
+    rCitrixHostSecGroup:
+        Type: "AWS::EC2::SecurityGroup"
+        Properties: 
+            GroupDescription: "Citrix Host Rules"
+            SecurityGroupIngress:
+                -
+                    IpProtocol: "tcp"
+                    FromPort: "0"
+                    ToPort: "65535"
+                    CidrIp: 
+                        Fn::ImportValue: !Sub ${BaseStackName}-rVpcCidr
+                -
+                    IpProtocol: "udp"
+                    FromPort: "0"
+                    ToPort: "65535"
+                    CidrIp: 
+                        Fn::ImportValue: !Sub ${BaseStackName}-rVpcCidr
+                -
+                    IpProtocol: "icmp"
+                    FromPort: "-1"
+                    ToPort: "-1"
+                    CidrIp: 
+                        Fn::ImportValue: !Sub ${BaseStackName}-rVpcCidr
+            VpcId: 
+                Fn::ImportValue: !Sub ${BaseStackName}-rVPCProduction
+    rCitrixHost1:
+        Type: "AWS::EC2::Instance"
+        Properties:
+            ImageId: !FindInMap [WindowsRegionToAmiMap, !Ref "AWS::Region", "W2012AMI"]
+            SubnetId: 
+                 Fn::ImportValue: !Sub ${BaseStackName}-rPrivSubnet1
+            InstanceType: m4.xlarge
+            KeyName: "GovCloud-Key"
+            Tags:
+                - Key: Name
+                  Value: "XenDesktop"
+                - Key: Project
+                  Value: "Citrix"
+            UserData:
+                Fn::Base64:  !Sub |
+                    <powershell>
+                    $cred = New-Object System.Management.Automation.PsCredential("${domainUser}", (ConvertTo-SecureString "${password}" -AsPlainText -Force))
+                    Add-Computer -DomainName "${domainName}" -Credential $cred
+                    Restart-Computer
+                    </powershell>
+            SecurityGroupIds: 
+                - !GetAtt rCitrixHostSecGroup.GroupId
+    rCitrixHost2:
+        Type: "AWS::EC2::Instance"
+        Properties:
+            ImageId: !FindInMap [WindowsRegionToAmiMap, !Ref "AWS::Region", "W2012AMI"]
+            SubnetId: 
+                 Fn::ImportValue: !Sub ${BaseStackName}-rPrivSubnet1
+            InstanceType: m4.large
+            KeyName: "GovCloud-Key"
+            Tags:
+                - Key: Name
+                  Value: "StoreFront"
+                - Key: Project
+                  Value: "Citrix"
+            UserData:
+                Fn::Base64:  !Sub |
+                    <powershell>
+                    $cred = New-Object System.Management.Automation.PsCredential("${domainUser}", (ConvertTo-SecureString "${password}" -AsPlainText -Force))
+                    Add-Computer -DomainName "${domainName}" -Credential $cred
+                    Restart-Computer
+                    </powershell>
+            SecurityGroupIds: 
+                - !GetAtt rCitrixHostSecGroup.GroupId
+
+
+
+    

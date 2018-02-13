@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC with public subnet, IGW and private subnet, plus routing tables
+Parameters:
+    BaseStackName:
+        Description: Name of Stack for Network
+        Type: String
+        Default: Network
+Mappings:
+    WindowsRegionToAmiMap:
+        us-gov-west-1: 
+            "W2012AMI": "ami-bc8702dd"
+    LinuxRegionToAmiMap:
+        us-gov-west-1:
+            "LinuxAMI": "ami-700a8f11"
+
+Resources:
+    rBastionHostSecGroup:
+        Type: "AWS::EC2::SecurityGroup"
+        Properties: 
+            GroupDescription: "Bastion host access rules"
+            SecurityGroupIngress:
+                -
+                    IpProtocol: "tcp"
+                    FromPort: "3389"
+                    ToPort: "3389"
+                    CidrIp: "0.0.0.0/0"
+            VpcId: 
+                Fn::ImportValue: !Sub ${BaseStackName}-rVPCProduction
+    rDomainControllerSecurityGroup:
+        Type: "AWS::EC2::SecurityGroup"
+        Properties: 
+            GroupDescription: "Domain controller host access rules"
+            SecurityGroupIngress:
+                -
+                    IpProtocol: "tcp"
+                    FromPort: "0"
+                    ToPort: "65535"
+                    CidrIp: 
+                        Fn::ImportValue: !Sub ${BaseStackName}-rVpcCidr
+                -
+                    IpProtocol: "udp"
+                    FromPort: "0"
+                    ToPort: "65535"
+                    CidrIp: 
+                        Fn::ImportValue: !Sub ${BaseStackName}-rVpcCidr
+                -
+                    IpProtocol: "icmp"
+                    FromPort: "-1"
+                    ToPort: "-1"
+                    CidrIp: 
+                        Fn::ImportValue: !Sub ${BaseStackName}-rVpcCidr
+            VpcId: 
+                Fn::ImportValue: !Sub ${BaseStackName}-rVPCProduction
+    rDomainController1:
+        Type: "AWS::EC2::Instance"
+        Properties:
+            ImageId: !FindInMap [WindowsRegionToAmiMap, !Ref "AWS::Region", "W2012AMI"]
+            SubnetId: 
+                Fn::ImportValue: !Sub ${BaseStackName}-rPrivSubnet1
+            InstanceType: m4.large
+            KeyName: "GovCloud-Key"
+            Tags:
+                - Key: Name
+                  Value: "Domain Controller"
+                - Key: Project
+                  Value: "Citrix"
+            SecurityGroupIds: 
+                - !GetAtt rDomainControllerSecurityGroup.GroupId
+    rBastionHost:
+        Type: "AWS::EC2::Instance"
+        Properties:
+            ImageId: !FindInMap [WindowsRegionToAmiMap, !Ref "AWS::Region", "W2012AMI"]
+            InstanceType: t2.large
+            KeyName: "GovCloud-Key"
+            NetworkInterfaces:
+                - AssociatePublicIpAddress: True
+                  DeviceIndex: "0"
+                  SubnetId: 
+                      Fn::ImportValue: !Sub ${BaseStackName}-rPubSubnet1
+                  GroupSet: 
+                      - !Ref rBastionHostSecGroup   
+            Tags:
+                - Key: Name
+                  Value: "BastionHost"
+                - Key: Project
+                  Value: "Citrix"
+Outputs:
+    rBastionHostIp:
+        Value: !GetAtt rBastionHost.PublicIp
+        Export:
+            Name: rBastionHostIp
+            Value: !Sub "${AWS::StackName}-rBastionHostIp"            
+    rDomainController1Ip:
+        Value: !GetAtt rDomainController1.PrivateIp
+        Export:
+            Name: rDomainController1Ip
+            Value: !Sub "${AWS::StackName}-rDomainController1Ip"   
+

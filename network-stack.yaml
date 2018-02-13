@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC with public subnet, IGW and private subnet, plus routing tables
+Parameters:
+    pVPCCIDR:
+        Description: CIDR block for Class VPC
+        Type: String
+        Default: 10.100.0.0/16
+    pVPCName:
+        Description: Name of VPC
+        Type: String
+        Default: MyNewVPC
+    pPubSubnet1CIDR:
+        Description: CIDR for Public Subnet 1
+        Type: String
+        Default: 10.100.10.0/24
+    pPubSubnet2CIDR:
+        Description: CIDR for Public Subnet 2
+        Type: String
+        Default: 10.100.11.0/24    
+    pPrivSubnet1CIDR:
+        Description: CIDR for Private Subnet 1
+        Type: String
+        Default: 10.100.20.0/24
+    pPrivSubnet2CIDR:
+        Description: CIDR for Private Subnet 2
+        Type: String
+        Default: 10.100.21.0/24
+Mappings:
+    RegionMap:
+        us-gov-west-1:
+            "NatInstance": "ami-ae29a4cf"
+
+Resources:
+    rVPCProduction:
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: !Ref pVPCCIDR
+            InstanceTenancy: default
+            EnableDnsSupport: true
+            EnableDnsHostnames: true
+            Tags:
+              - Key: Name
+                Value: !Ref pVPCName
+    rInternetGateway:
+        Type: "AWS::EC2::InternetGateway"
+        Properties:
+            Tags:
+                - Key: Name
+                  Value: !Ref rVPCProduction
+    rInternetGatewayAttach:
+        Type: "AWS::EC2::VPCGatewayAttachment"
+        Properties: 
+            InternetGatewayId: !Ref rInternetGateway
+            VpcId: !Ref rVPCProduction
+    rPubSubnet1:
+        Type: "AWS::EC2::Subnet"
+        Properties: 
+            AvailabilityZone:
+                Fn::Select:
+                    - 0 
+                    - Fn::GetAZs: ""
+            CidrBlock: !Ref pPubSubnet1CIDR
+            MapPublicIpOnLaunch: False
+            Tags:
+                - Key: Name
+                  Value: "Public Subnet 1"
+            VpcId: !Ref rVPCProduction
+    rPubSubnet2:
+        Type: "AWS::EC2::Subnet"
+        Properties: 
+            AvailabilityZone:
+                Fn::Select:
+                    - 1
+                    - Fn::GetAZs: ""
+            CidrBlock: !Ref pPubSubnet2CIDR
+            MapPublicIpOnLaunch: False
+            Tags:
+                - Key: Name
+                  Value: "Public Subnet 2"
+            VpcId: !Ref rVPCProduction
+    rPrivSubnet1:
+        Type: "AWS::EC2::Subnet"
+        Properties: 
+            AvailabilityZone:
+                Fn::Select:
+                    - 0 
+                    - Fn::GetAZs: ""
+            CidrBlock: !Ref pPrivSubnet1CIDR
+            MapPublicIpOnLaunch: False
+            Tags:
+                - Key: Name
+                  Value: "Private Subnet 1"
+            VpcId: !Ref rVPCProduction
+    rPrivSubnet2:
+        Type: "AWS::EC2::Subnet"
+        Properties: 
+            AvailabilityZone:
+                Fn::Select:
+                    - 1
+                    - Fn::GetAZs: ""
+            CidrBlock: !Ref pPrivSubnet2CIDR
+            MapPublicIpOnLaunch: False
+            Tags:
+                - Key: Name
+                  Value: "Private Subnet 2"
+            VpcId: !Ref rVPCProduction
+    rNatGatewayEIP:
+        Type: "AWS::EC2::EIP"
+        Properties:
+            Domain: vpc
+        DependsOn: "rVPCProduction"    
+    rNatInstance:
+        Type: "AWS::EC2::Instance"
+        Properties:
+            SubnetId: !Ref rPubSubnet1
+            ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", "NatInstance"]
+            InstanceType: t2.large
+            SourceDestCheck: False
+    rNatInstanceEIP:
+        Type: "AWS::EC2::EIPAssociation"
+        Properties:
+          AllocationId: !GetAtt rNatGatewayEIP.AllocationId
+          InstanceId: !Ref rNatInstance
+        DependsOn: "rNatInstance"
+#    rNatGateway:
+#        Type: "AWS::EC2::NatGateway"
+#        Properties: 
+#            AllocationId: !Ref rNatGatewayEIP
+#            SubnetId: !Ref rPubSubnet1
+#        DependsOn: "rNatGatewayEIP"
+    rRouteTablePub1:
+        Type: "AWS::EC2::RouteTable"
+        Properties: 
+            VpcId: !Ref rVPCProduction
+            Tags:
+                - Key: Name
+                  Value: "Public Subnet 1 Route Table"
+        DependsOn: "rVPCProduction"
+    rRouteTablePub2:
+        Type: "AWS::EC2::RouteTable"
+        Properties: 
+            VpcId: !Ref rVPCProduction
+            Tags:
+                - Key: Name
+                  Value: "Public Subnet 2 Route Table"
+        DependsOn: "rVPCProduction"
+    rRouteTablePriv1:
+        Type: "AWS::EC2::RouteTable"
+        Properties: 
+            VpcId: !Ref rVPCProduction
+            Tags:
+                - Key: Name
+                  Value: "Private Subnet 1 Route Table"
+        DependsOn: "rVPCProduction"
+    rRouteTablePriv2:
+        Type: "AWS::EC2::RouteTable"
+        Properties: 
+            VpcId: !Ref rVPCProduction
+            Tags:
+                - Key: Name
+                  Value: "Private Subnet 2 Route Table"
+        DependsOn: "rVPCProduction"
+    rPubSubnet1Route:
+        Type: "AWS::EC2::Route"
+        Properties: 
+          DestinationCidrBlock: "0.0.0.0/0"
+          GatewayId: !Ref rInternetGateway
+          RouteTableId: !Ref rRouteTablePub1
+    rPubSubnet2Route:
+        Type: "AWS::EC2::Route"
+        Properties: 
+          DestinationCidrBlock: "0.0.0.0/0"
+          GatewayId: !Ref rInternetGateway
+          RouteTableId: !Ref rRouteTablePub2
+    rPrivSubnet1Route:
+        Type: "AWS::EC2::Route"
+        Properties: 
+          DestinationCidrBlock: "0.0.0.0/0"
+          InstanceId: !Ref rNatInstance
+          RouteTableId: !Ref rRouteTablePriv1
+    rPrivSubnet2Route:
+        Type: "AWS::EC2::Route"
+        Properties: 
+          DestinationCidrBlock: "0.0.0.0/0"
+          InstanceId: !Ref rNatInstance
+          RouteTableId: !Ref rRouteTablePriv2
+    rPubSubnet1RouteAssoc:
+        Type: "AWS::EC2::SubnetRouteTableAssociation"
+        Properties: 
+            RouteTableId: !Ref rRouteTablePub1
+            SubnetId: !Ref rPubSubnet1
+    rPubSubnet2RouteAssoc:
+        Type: "AWS::EC2::SubnetRouteTableAssociation"
+        Properties: 
+            RouteTableId: !Ref rRouteTablePub2
+            SubnetId: !Ref rPubSubnet2
+    rPrivSubnet1RouteAssoc:
+        Type: "AWS::EC2::SubnetRouteTableAssociation"
+        Properties: 
+            RouteTableId: !Ref rRouteTablePriv1
+            SubnetId: !Ref rPrivSubnet1
+    rPrivSubnet2RouteAssoc:
+        Type: "AWS::EC2::SubnetRouteTableAssociation"
+        Properties: 
+            RouteTableId: !Ref rRouteTablePriv2
+            SubnetId: !Ref rPrivSubnet2
+
+Outputs:
+    rVPCProduction:
+        Value: !Ref rVPCProduction
+        Export:
+            Name: !Sub "${AWS::StackName}-rVPCProduction"
+    rPubSubnet1:
+        Description: "Public subnet 1"
+        Value: !Ref rPubSubnet1
+        Export:
+            Name: !Sub "${AWS::StackName}-rPubSubnet1"
+    rPubSubnet2:
+        Description: "Public subnet 2"
+        Value: !Ref rPubSubnet2
+        Export:
+            Name: !Sub "${AWS::StackName}-rPubSubnet2"
+    rPrivSubnet1:
+        Description: "Private subnet 1"
+        Value: !Ref rPrivSubnet1
+        Export:
+            Name: !Sub "${AWS::StackName}-rPrivSubnet1"
+    rPrivSubnet2:
+        Description: "Private subnet 2"
+        Value: !Ref rPrivSubnet2
+        Export:
+            Name: !Sub "${AWS::StackName}-rPrivSubnet2"
+    rVpcCidr:
+        Value: !Ref pVPCCIDR
+        Export:
+            Name: !Sub "${AWS::StackName}-rVpcCidr"
